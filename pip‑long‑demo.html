@@ -3,41 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PiP提词演示 3‑5分钟</title>
+<title>网页悬浮题词演示</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#121214;color:#fff;padding:16px;font-size:15px}
 button{padding:12px;width:100%;font-size:17px;margin:6px 0;border-radius:8px;border:0}
 #status{margin:10px 0;color:#72fa72;font-size:16px}
 #log{margin:12px 0;padding:10px;background:#1e1e20;min-height:140px;border-radius:6px;white-space:pre-line}
-#pipCanvas{position:fixed;left:-9999px;width:400px;height:260px}
-#pipVideo{position:fixed;left:-9999px}
+#floatTip{
+    position:fixed;
+    z-index:9999;
+    bottom:80px;
+    right:12px;
+    width:280px;
+    max-height:320px;
+    overflow-y:auto;
+    background:rgba(0,0,0,0.78);
+    color:#ffffff;
+    font-size:20px;
+    line-height:34px;
+    padding:14px;
+    border-radius:10px;
+    user-select:none;
+    touch-action:none;
+    display:none;
+}
+.control-bar{
+    display:flex;
+    gap:6px;
+    margin-bottom:8px;
+}
 </style>
 </head>
 <body>
 <div id="status">待机，点击发送模拟流式回答</div>
 <button id="streamSimBtn">模拟AI分段推送回答(3‑5min演示)</button>
-<button id="startPip">开启画中画悬浮提词</button>
+<button id="openFloat">打开页面悬浮题词</button>
+<button id="closeFloat">关闭悬浮题词</button>
+<div class="control-bar">
+    <button id="fontMinus" style="flex:1">A‑</button>
+    <button id="fontPlus" style="flex:1">A+</button>
+</div>
 <div id="log">消息日志：</div>
 
-<canvas id="pipCanvas" width="400" height="260"></canvas>
-<video id="pipVideo" muted playsinline></video>
+<div id="floatTip"></div>
 
 <script>
-const canvas=document.getElementById("pipCanvas");
-const ctx=canvas.getContext("2d");
-const video=document.getElementById("pipVideo");
 const statusDom=document.getElementById("status");
 const streamSimBtn=document.getElementById("streamSimBtn");
-const startPipBtn=document.getElementById("startPip");
+const openFloatBtn=document.getElementById("openFloat");
+const closeFloatBtn=document.getElementById("closeFloat");
 const logDom=document.getElementById("log");
+const floatTipDom=document.getElementById("floatTip");
+const fontMinus=document.getElementById("fontMinus");
+const fontPlus=document.getElementById("fontPlus");
 
-let rafId=null;
-let stream=null;
 let textBuffer="等待AI推送回答……";
 let simulateTimer=null;
+let fontSize=20;
 
-// 模拟面试回答片段，分段输出，整体时长3‑5分钟
 const paragraphList=[
 "面试官您好，接下来由我介绍个人项目Interview。",
 "该项目基于Electron + React技术栈开发，定位AI线上面试辅助程序。",
@@ -56,33 +80,17 @@ const paragraphList=[
 "以上是项目功能以及踩坑总结，感谢您的聆听。"
 ];
 
-function drawText(content){
-    ctx.fillStyle="rgba(0,0,0,0.78)";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle="#ffffff";
-    ctx.font="21px -apple-system,sans-serif";
-    ctx.textBaseline="top";
-    const lineHeight=34;
-    const padding=16;
-    let y=padding;
-    content.split("\n").forEach(line=>{
-        ctx.fillText(line,padding,y);
-        y+=lineHeight;
-    })
+function updateTipText(content){
+    floatTipDom.innerText=content;
+    floatTipDom.scrollTop=floatTipDom.scrollHeight;
 }
 
-function renderLoop(){
-    drawText(textBuffer);
-    rafId=requestAnimationFrame(renderLoop);
-}
-
-// 模拟流式增量输出，每12秒推送一段文本，全部输出耗时大约3分30秒
 streamSimBtn.onclick=()=>{
     clearInterval(simulateTimer);
     textBuffer="";
     logDom.innerText="消息日志：\n";
-    let index=0;
     statusDom.innerText="✅正在模拟流式下发文本";
+    let index=0;
     simulateTimer=setInterval(()=>{
         if(index>=paragraphList.length){
             clearInterval(simulateTimer);
@@ -92,29 +100,49 @@ streamSimBtn.onclick=()=>{
         const piece=paragraphList[index];
         textBuffer += piece+"\n\n";
         logDom.innerText += piece+"\n";
+        updateTipText(textBuffer);
         index++;
     },12000)
 }
 
-startPipBtn.onclick=async ()=>{
-    if(!document.pictureInPictureEnabled){
-        alert("仅Safari浏览器支持画中画");
-        return;
-    }
-    stream=canvas.captureStream(30);
-    video.srcObject=stream;
-    await video.play();
-    renderLoop();
-    await video.requestPictureInPicture();
-    statusDom.innerText="画中画已经启动，请保证Safari处于前台";
+openFloatBtn.onclick=()=>{
+    floatTipDom.style.display="block";
+    updateTipText(textBuffer);
+    statusDom.innerText="✅页面悬浮题词已打开（仅Safari标签页内生效）";
+}
+closeFloatBtn.onclick=()=>{
+    floatTipDom.style.display="none";
+    statusDom.innerText="悬浮题词已关闭";
 }
 
-video.addEventListener("leavepictureinpicture",()=>{
-    cancelAnimationFrame(rafId);
-    stream?.getTracks().forEach(track=>track.stop());
-    clearInterval(simulateTimer);
-    statusDom.innerText="画中画已经手动关闭";
+fontMinus.onclick=()=>{
+    fontSize=Math.max(14,fontSize-2);
+    floatTipDom.style.fontSize=fontSize+"px";
+}
+fontPlus.onclick=()=>{
+    fontSize=Math.min(32,fontSize+2);
+    floatTipDom.style.fontSize=fontSize+"px";
+}
+
+//拖拽逻辑
+let isDrag=false;
+let offsetX,offsetY;
+floatTipDom.addEventListener("touchstart",(e)=>{
+    isDrag=true;
+    const touch=e.touches[0];
+    const rect=floatTipDom.getBoundingClientRect();
+    offsetX=touch.clientX-rect.left;
+    offsetY=touch.clientY-rect.top;
 })
+document.addEventListener("touchmove",(e)=>{
+    if(!isDrag) return;
+    const touch=e.touches[0];
+    floatTipDom.style.left=(touch.clientX-offsetX)+"px";
+    floatTipDom.style.top=(touch.clientY-offsetY)+"px";
+    floatTipDom.style.right="auto";
+    floatTipDom.style.bottom="auto";
+})
+document.addEventListener("touchend",()=>isDrag=false)
 </script>
 </body>
 </html>
