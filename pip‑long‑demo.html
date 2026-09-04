@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh‑CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PiP提词演示 3‑5分钟</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#121214;color:#fff;padding:16px;font-size:15px}
+button{padding:12px;width:100%;font-size:17px;margin:6px 0;border-radius:8px;border:0}
+#status{margin:10px 0;color:#72fa72;font-size:16px}
+#log{margin:12px 0;padding:10px;background:#1e1e20;min-height:140px;border-radius:6px;white-space:pre-line}
+#pipCanvas{position:fixed;left:-9999px;width:400px;height:260px}
+#pipVideo{position:fixed;left:-9999px}
+</style>
+</head>
+<body>
+<div id="status">待机，点击发送模拟流式回答</div>
+<button id="streamSimBtn">模拟AI分段推送回答(3‑5min演示)</button>
+<button id="startPip">开启画中画悬浮提词</button>
+<div id="log">消息日志：</div>
+
+<canvas id="pipCanvas" width="400" height="260"></canvas>
+<video id="pipVideo" muted playsinline></video>
+
+<script>
+const canvas=document.getElementById("pipCanvas");
+const ctx=canvas.getContext("2d");
+const video=document.getElementById("pipVideo");
+const statusDom=document.getElementById("status");
+const streamSimBtn=document.getElementById("streamSimBtn");
+const startPipBtn=document.getElementById("startPip");
+const logDom=document.getElementById("log");
+
+let rafId=null;
+let stream=null;
+let textBuffer="等待AI推送回答……";
+let simulateTimer=null;
+
+// 模拟面试回答片段，分段输出，整体时长3‑5分钟
+const paragraphList=[
+"面试官您好，接下来由我介绍个人项目Interview。",
+"该项目基于Electron + React技术栈开发，定位AI线上面试辅助程序。",
+"主要功能包含截图识别搜题、实时语音通话转录，并且接入多家大模型API。",
+"开发期间我解决了截图base64编码造成主线程阻塞，鼠标光标瞬移卡顿的缺陷。",
+"经过调试，采用Canvas完成截图处理，规避JS主线程密集同步运算。",
+"项目内置WebSocket服务，可以向外传输AI返回的面试参考答案。",
+"我们设想手机端借助画中画实现悬浮题词。",
+"经过验证，安卓设备网页PiP方案能够稳定运行。",
+"iPhone受到WebKit系统策略约束。浏览器App一旦退入后台，JS执行被暂停。",
+"画布停止生成新画面，悬浮窗口文字定格。",
+"所以iOS单手机网页方案仅仅能够前台演示，不适配正式面试。",
+"稳妥的落地方案为Windows端Electron开启置顶无边框子窗口。",
+"依靠IPC完成主窗口与悬浮窗口的数据传输。",
+"悬浮窗体置顶于全部应用上层，文字实时刷新，不存在后台冻结的问题。",
+"以上是项目功能以及踩坑总结，感谢您的聆听。"
+];
+
+function drawText(content){
+    ctx.fillStyle="rgba(0,0,0,0.78)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#ffffff";
+    ctx.font="21px -apple-system,sans-serif";
+    ctx.textBaseline="top";
+    const lineHeight=34;
+    const padding=16;
+    let y=padding;
+    content.split("\n").forEach(line=>{
+        ctx.fillText(line,padding,y);
+        y+=lineHeight;
+    })
+}
+
+function renderLoop(){
+    drawText(textBuffer);
+    rafId=requestAnimationFrame(renderLoop);
+}
+
+// 模拟流式增量输出，每12秒推送一段文本，全部输出耗时大约3分30秒
+streamSimBtn.onclick=()=>{
+    clearInterval(simulateTimer);
+    textBuffer="";
+    logDom.innerText="消息日志：\n";
+    let index=0;
+    statusDom.innerText="✅正在模拟流式下发文本";
+    simulateTimer=setInterval(()=>{
+        if(index>=paragraphList.length){
+            clearInterval(simulateTimer);
+            statusDom.innerText="演示文本全部推送完毕";
+            return;
+        }
+        const piece=paragraphList[index];
+        textBuffer += piece+"\n\n";
+        logDom.innerText += piece+"\n";
+        index++;
+    },12000)
+}
+
+startPipBtn.onclick=async ()=>{
+    if(!document.pictureInPictureEnabled){
+        alert("仅Safari浏览器支持画中画");
+        return;
+    }
+    stream=canvas.captureStream(30);
+    video.srcObject=stream;
+    await video.play();
+    renderLoop();
+    await video.requestPictureInPicture();
+    statusDom.innerText="画中画已经启动，请保证Safari处于前台";
+}
+
+video.addEventListener("leavepictureinpicture",()=>{
+    cancelAnimationFrame(rafId);
+    stream?.getTracks().forEach(track=>track.stop());
+    clearInterval(simulateTimer);
+    statusDom.innerText="画中画已经手动关闭";
+})
+</script>
+</body>
+</html>
