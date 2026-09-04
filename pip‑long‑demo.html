@@ -1,148 +1,164 @@
 <!DOCTYPE html>
-<html lang="zh‑CN">
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>网页悬浮题词演示</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>iPhone Video PiP 测试</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#121214;color:#fff;padding:16px;font-size:15px}
-button{padding:12px;width:100%;font-size:17px;margin:6px 0;border-radius:8px;border:0}
-#status{margin:10px 0;color:#72fa72;font-size:16px}
-#log{margin:12px 0;padding:10px;background:#1e1e20;min-height:140px;border-radius:6px;white-space:pre-line}
-#floatTip{
-    position:fixed;
-    z-index:9999;
-    bottom:80px;
-    right:12px;
-    width:280px;
-    max-height:320px;
-    overflow-y:auto;
-    background:rgba(0,0,0,0.78);
-    color:#ffffff;
-    font-size:20px;
-    line-height:34px;
-    padding:14px;
-    border-radius:10px;
-    user-select:none;
-    touch-action:none;
-    display:none;
-}
-.control-bar{
-    display:flex;
-    gap:6px;
-    margin-bottom:8px;
-}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #111;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+  .tip {
+    font-size: 14px;
+    color: #bbb;
+    margin-bottom: 16px;
+    line-height: 1.6;
+  }
+  video {
+    width: 100%;
+    max-width: 420px;
+    background: #000;
+    border-radius: 10px;
+    display: block;
+    margin-bottom: 16px;
+  }
+  .btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 420px;
+  }
+  button {
+    padding: 14px;
+    font-size: 16px;
+    border: none;
+    border-radius: 10px;
+    background: #2f80ed;
+    color: #fff;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: #333;
+  }
+  .status {
+    margin-top: 16px;
+    padding: 12px;
+    background: #1c1c1e;
+    border-radius: 10px;
+    font-size: 14px;
+    min-height: 44px;
+    white-space: pre-line;
+    line-height: 1.6;
+  }
+  .ok { color: #4ade80; }
+  .err { color: #f87171; }
 </style>
 </head>
 <body>
-<div id="status">待机，点击发送模拟流式回答</div>
-<button id="streamSimBtn">模拟AI分段推送回答(3‑5min演示)</button>
-<button id="openFloat">打开页面悬浮题词</button>
-<button id="closeFloat">关闭悬浮题词</button>
-<div class="control-bar">
-    <button id="fontMinus" style="flex:1">A‑</button>
-    <button id="fontPlus" style="flex:1">A+</button>
-</div>
-<div id="log">消息日志：</div>
 
-<div id="floatTip"></div>
+  <h1>iPhone Video PiP 测试</h1>
+
+  <p class="tip">
+    此页面用真实视频标签测试系统画中画。<br />
+    如果能弹出小窗，说明 video 形式 PiP 可用；<br />
+    如果不能弹出，说明不是页面写法问题，而是 iPhone Safari 对当前视频源不支持 PiP。
+  </p>
+
+  <video id="video" controls playsinline muted preload="metadata">
+    <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4" />
+  </video>
+
+  <div class="btn-group">
+    <button id="playBtn">播放视频</button>
+    <button id="pipBtn">尝试弹出画中画</button>
+    <button id="closePipBtn" class="secondary">关闭画中画</button>
+  </div>
+
+  <div id="status" class="status">等待操作...</div>
 
 <script>
-const statusDom=document.getElementById("status");
-const streamSimBtn=document.getElementById("streamSimBtn");
-const openFloatBtn=document.getElementById("openFloat");
-const closeFloatBtn=document.getElementById("closeFloat");
-const logDom=document.getElementById("log");
-const floatTipDom=document.getElementById("floatTip");
-const fontMinus=document.getElementById("fontMinus");
-const fontPlus=document.getElementById("fontPlus");
+  const video = document.getElementById('video');
+  const playBtn = document.getElementById('playBtn');
+  const pipBtn = document.getElementById('pipBtn');
+  const closePipBtn = document.getElementById('closePipBtn');
+  const status = document.getElementById('status');
 
-let textBuffer="等待AI推送回答……";
-let simulateTimer=null;
-let fontSize=20;
+  function log(msg, type = '') {
+    status.className = 'status ' + type;
+    status.textContent = msg;
+  }
 
-const paragraphList=[
-"面试官您好，接下来由我介绍个人项目Interview。",
-"该项目基于Electron + React技术栈开发，定位AI线上面试辅助程序。",
-"主要功能包含截图识别搜题、实时语音通话转录，并且接入多家大模型API。",
-"开发期间我解决了截图base64编码造成主线程阻塞，鼠标光标瞬移卡顿的缺陷。",
-"经过调试，采用Canvas完成截图处理，规避JS主线程密集同步运算。",
-"项目内置WebSocket服务，可以向外传输AI返回的面试参考答案。",
-"我们设想手机端借助画中画实现悬浮题词。",
-"经过验证，安卓设备网页PiP方案能够稳定运行。",
-"iPhone受到WebKit系统策略约束。浏览器App一旦退入后台，JS执行被暂停。",
-"画布停止生成新画面，悬浮窗口文字定格。",
-"所以iOS单手机网页方案仅仅能够前台演示，不适配正式面试。",
-"稳妥的落地方案为Windows端Electron开启置顶无边框子窗口。",
-"依靠IPC完成主窗口与悬浮窗口的数据传输。",
-"悬浮窗体置顶于全部应用上层，文字实时刷新，不存在后台冻结的问题。",
-"以上是项目功能以及踩坑总结，感谢您的聆听。"
-];
+  playBtn.addEventListener('click', async () => {
+    try {
+      await video.play();
+      log('✅ 视频已播放', 'ok');
+    } catch (e) {
+      log('❌ 播放失败：' + e.message, 'err');
+    }
+  });
 
-function updateTipText(content){
-    floatTipDom.innerText=content;
-    floatTipDom.scrollTop=floatTipDom.scrollHeight;
-}
+  pipBtn.addEventListener('click', async () => {
+    if (!document.pictureInPictureEnabled) {
+      log('❌ 当前浏览器不支持 pictureInPictureEnabled', 'err');
+      return;
+    }
 
-streamSimBtn.onclick=()=>{
-    clearInterval(simulateTimer);
-    textBuffer="";
-    logDom.innerText="消息日志：\n";
-    statusDom.innerText="✅正在模拟流式下发文本";
-    let index=0;
-    simulateTimer=setInterval(()=>{
-        if(index>=paragraphList.length){
-            clearInterval(simulateTimer);
-            statusDom.innerText="演示文本全部推送完毕";
-            return;
-        }
-        const piece=paragraphList[index];
-        textBuffer += piece+"\n\n";
-        logDom.innerText += piece+"\n";
-        updateTipText(textBuffer);
-        index++;
-    },12000)
-}
+    if (video.readyState === 0) {
+      log('❌ 视频还没加载完成，请先点击“播放视频”', 'err');
+      return;
+    }
 
-openFloatBtn.onclick=()=>{
-    floatTipDom.style.display="block";
-    updateTipText(textBuffer);
-    statusDom.innerText="✅页面悬浮题词已打开（仅Safari标签页内生效）";
-}
-closeFloatBtn.onclick=()=>{
-    floatTipDom.style.display="none";
-    statusDom.innerText="悬浮题词已关闭";
-}
+    try {
+      if (document.pictureInPictureElement) {
+        log('ℹ️ 已经有一个画中画窗口在运行', 'ok');
+        return;
+      }
 
-fontMinus.onclick=()=>{
-    fontSize=Math.max(14,fontSize-2);
-    floatTipDom.style.fontSize=fontSize+"px";
-}
-fontPlus.onclick=()=>{
-    fontSize=Math.min(32,fontSize+2);
-    floatTipDom.style.fontSize=fontSize+"px";
-}
+      await video.requestPictureInPicture();
+      log('✅ 已调用 requestPictureInPicture()', 'ok');
+    } catch (e) {
+      log('❌ 唤起 PiP 失败：' + e.message + '\n\n这通常说明 iPhone Safari 不允许当前视频源进入画中画。', 'err');
+    }
+  });
 
-//拖拽逻辑
-let isDrag=false;
-let offsetX,offsetY;
-floatTipDom.addEventListener("touchstart",(e)=>{
-    isDrag=true;
-    const touch=e.touches[0];
-    const rect=floatTipDom.getBoundingClientRect();
-    offsetX=touch.clientX-rect.left;
-    offsetY=touch.clientY-rect.top;
-})
-document.addEventListener("touchmove",(e)=>{
-    if(!isDrag) return;
-    const touch=e.touches[0];
-    floatTipDom.style.left=(touch.clientX-offsetX)+"px";
-    floatTipDom.style.top=(touch.clientY-offsetY)+"px";
-    floatTipDom.style.right="auto";
-    floatTipDom.style.bottom="auto";
-})
-document.addEventListener("touchend",()=>isDrag=false)
+  closePipBtn.addEventListener('click', async () => {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        log('✅ 已关闭画中画', 'ok');
+      } else {
+        log('ℹ️ 当前没有画中画窗口', 'ok');
+      }
+    } catch (e) {
+      log('❌ 关闭 PiP 失败：' + e.message, 'err');
+    }
+  });
+
+  video.addEventListener('enterpictureinpicture', () => {
+    log('✅ 视频已进入画中画模式', 'ok');
+  });
+
+  video.addEventListener('leavepictureinpicture', () => {
+    log('ℹ️ 视频已离开画中画模式', 'ok');
+  });
+
+  video.addEventListener('loadedmetadata', () => {
+    log('ℹ️ 视频元数据已加载，可尝试播放并唤起 PiP', 'ok');
+  });
+
+  video.addEventListener('error', () => {
+    log('❌ 视频加载出错', 'err');
+  });
 </script>
+
 </body>
 </html>
