@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF‑8" />
 <meta name="viewport" content="width=device‑width, initial‑scale=1.0"/>
-<title>PiP提词器Fix</title>
+<title>PiP提词器最终修复版</title>
 <style>
 body{background:#111;color:#fff;padding:20px;}
 #canvasBox{display:none;}
@@ -11,9 +11,9 @@ button{padding:12px 24px;font‑size:16px;margin:8px 0;}
 </style>
 </head>
 <body>
-<h3>PiP画中画提词（修复Safari报错）</h3>
+<h3>PiP画中画提词器</h3>
 <button id="openPipBtn">👉点击打开画中画（仅点一次）</button>
-<button id="setTxtBtn">更新提词文本</button>
+<button id="setTxtBtn">模拟接收提词文本</button>
 <div id="canvasBox">
 <canvas id="tcCanvas" width="360" height="640"></canvas>
 <video id="tcVideo" muted playsinline></video>
@@ -36,19 +36,24 @@ function drawText(text){
   ctx.font="bold 26px sans‑serif";
   ctx.textAlign="center";
   const lines = text.split('\n');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#000";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
   lines.forEach((line,i)=>{
     ctx.fillText(line, canvas.width/2, 80 + i*44);
   })
 }
 
-// 监听pip关闭事件
+// 监听用户手动关闭画中画
 video.addEventListener('leavepictureinpicture', ()=>{
   pipActive = false;
 })
 
+// 初始化画布流
 const stream = canvas.captureStream(30);
 video.srcObject = stream;
 
+// 仅click同步回调中调用PiP
 openBtn.addEventListener('click',async ()=>{
   if(pipActive) return;
   try{
@@ -57,11 +62,12 @@ openBtn.addEventListener('click',async ()=>{
     await video.requestPictureInPicture();
     pipActive = true;
   }catch(e){
-    alert("PiP唤起失败："+e.message+"，请使用iOS Safari");
+    alert("PiP唤起失败："+e.message+"，请使用iOS Safari浏览器打开");
     console.error(e);
   }
 })
 
+// 模拟websocket收到新提词，只重绘，不操作PiP
 setTxtBtn.onclick = ()=>{
   teleText = "更新后的提词：\n我负责Electron渲染进程卡顿排查，定位到大图片base64同步阻塞主线程。\n采用WebWorker或者FormData流上传解决鼠标漂移。";
   drawText(teleText);
