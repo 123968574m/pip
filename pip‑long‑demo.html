@@ -2,133 +2,68 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, touch-action: manipulation"/>
-<title>提词器｜文字转视频帧方案</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>iOS PiP 字幕测试</title>
 <style>
 body{background:#111;color:#fff;padding:20px;}
 button{padding:14px 24px;font-size:16px;margin:8px 0;}
-.tip{color:#aaa;font-size:14px;margin-bottom:10px;}
-
-.stage{
-  position: fixed;
-  right: 10px;
-  top: 80px;
-  width: 180px;
-  height: 320px;
-  border: 1px solid #666;
-  background: #000;
-  z-index: 9999;
-  display: none;
-}
-
-.stage img{
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-#tcVideo{
-  display: none;
-}
+video{width:320px;background:#000;}
 </style>
 </head>
 <body>
-
-<h3>提词器</h3>
-<div class="tip" id="deviceTip"></div>
-<button id="openBtn">打开提词窗口</button>
-<button id="updateBtn">更新提词文本</button>
-
-<div class="stage" id="stage">
-  <img id="frameImg" alt="" />
-</div>
-
-<canvas id="tcCanvas" width="320" height="560" style="display:none"></canvas>
-<video id="tcVideo" muted playsinline></video>
+<h3>iOS PiP 字幕方案测试</h3>
+<button id="openBtn">打开画中画</button>
+<button id="updateBtn">模拟更新文字</button>
+<br><br>
+<video id="player" muted playsinline loop controls>
+  <!-- 这里放一个黑屏mp4，你可以自己传一个10秒黑屏视频到仓库 -->
+  <source src="black.mp4" type="video/mp4">
+  <track id="subtitleTrack" kind="subtitles" srclang="zh" label="中文" default>
+</video>
 
 <script>
-const canvas = document.getElementById('tcCanvas');
-const ctx = canvas.getContext('2d');
-const video = document.getElementById('tcVideo');
-const frameImg = document.getElementById('frameImg');
-const stage = document.getElementById('stage');
+const video = document.getElementById('player');
+const track = document.getElementById('subtitleTrack');
 const openBtn = document.getElementById('openBtn');
 const updateBtn = document.getElementById('updateBtn');
-const deviceTip = document.getElementById('deviceTip');
 
-let textContent = "面试示例文字\n第一行\n第二行";
-let pipOn = false;
+// 等待视频加载完成
+video.addEventListener('loadedmetadata', ()=>{
+  const textTrack = video.textTracks[0];
+  textTrack.mode = 'showing';
 
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-const isAndroid = /Android/.test(navigator.userAgent);
+  // 初始字幕
+  const cue = new VTTCue(0, 9999, "初始提词文字\n第一行\n第二行");
+  textTrack.addCue(cue);
 
-if (isIOS) {
-  deviceTip.innerText = "⚠️iOS：页面内显示文字视频帧，不使用 PiP";
-  openBtn.innerText = "打开页面提词";
-} else if (isAndroid) {
-  deviceTip.innerText = "✅安卓：使用画中画悬浮提词";
-  openBtn.innerText = "打开悬浮提词";
-}
-
-function renderTextToCanvas(text) {
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#fff";
-  ctx.font = "bold 24px sans-serif";
-  ctx.textAlign = "center";
-
-  const lines = text.split("\n");
-  const lineHeight = 42;
-  const startY = (canvas.height - lines.length * lineHeight) / 2 + 30;
-
-  lines.forEach((line, i) => {
-    ctx.fillText(line, canvas.width / 2, startY + i * lineHeight);
-  });
-}
-
-function updateFrame() {
-  renderTextToCanvas(textContent);
-  const dataUrl = canvas.toDataURL("image/png");
-
-  if (isIOS) {
-    frameImg.src = dataUrl;
-  } else {
-    video.src = dataUrl;
-  }
-}
-
-video.addEventListener("leavepictureinpicture", () => {
-  pipOn = false;
-});
-
-openBtn.addEventListener("click", function () {
-  updateFrame();
-
-  if (isIOS) {
-    stage.style.display = stage.style.display === "block" ? "none" : "block";
-    return;
+  // 更新文字函数：WebSocket收到消息时调用
+  function updateSubtitle(text){
+    // 清空旧字幕
+    const cues = textTrack.cues;
+    for(let i=cues.length-1; i>=0; i--){
+      textTrack.removeCue(cues[i]);
+    }
+    // 添加新字幕，时长设为9999秒保持常显
+    const newCue = new VTTCue(video.currentTime, video.currentTime + 9999, text);
+    textTrack.addCue(newCue);
   }
 
-  if (pipOn) return;
-
-  video.play().then(() => {
-    return video.requestPictureInPicture();
-  }).then(() => {
-    pipOn = true;
-    stage.style.display = "none";
-  }).catch(err => {
-    console.error("PiP失败", err);
-    stage.style.display = "block";
+  // 打开PiP
+  openBtn.addEventListener('click', ()=>{
+    video.play();
+    video.requestPictureInPicture()
+      .then(()=>console.log('PiP打开成功'))
+      .catch(e=>alert('PiP失败：'+e.message));
   });
+
+  // 模拟更新文字
+  updateBtn.onclick = ()=>{
+    updateSubtitle("更新后的提词：\nElectron渲染卡顿排查\n主线程阻塞优化方案");
+  };
+
+  // 暴露给全局，WebSocket里直接调用
+  window.updateTeleprompter = updateSubtitle;
 });
-
-updateBtn.onclick = () => {
-  textContent = "更新后的提词：\n我负责Electron渲染进程卡顿排查，定位到大图片base64同步阻塞主线程。\n采用WebWorker或FormData流上传优化。";
-  updateFrame();
-};
-
-updateFrame();
 </script>
-
 </body>
 </html>
