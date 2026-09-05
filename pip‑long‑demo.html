@@ -1,98 +1,185 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>PiP测试 修复play中断报错</title>
-<style>
-body{background:#111;color:#fff;padding:20px;}
-button{padding:12px 20px;font-size:16px;margin:4px;}
-#warn{color:#ff9800;margin-bottom:10px;}
-</style>
+    <meta charset="UTF-8">
+    <title>浏览器Pip提词器</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "微软雅黑", sans-serif; background: #1a1a1a; color: #fff; padding: 20px; }
+        .control-panel { margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        button { padding: 8px 16px; border: none; border-radius: 4px; background: #2563eb; color: #fff; cursor: pointer; }
+        button:hover { background: #1d4ed8; }
+        input[type="range"] { width: 150px; }
+        #pip-install { flex: 1; min-width: 200px; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; background: #222; color: #fff; }
+        .editor { width: 100%; height: 200px; padding: 15px; background: #222; color: #fff; border: 1px solid #333; border-radius: 4px; resize: vertical; margin-bottom: 15px; font-size: 16px; line-height: 1.6; }
+        
+        /* 提词器滚动区域样式 */
+        .prompter-container {
+            width: 100%;
+            height: 300px;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+            border-radius: 4px;
+        }
+        .prompter-content {
+            padding: 40px 60px;
+            font-size: 32px;
+            line-height: 1.8;
+            transform: translateY(0);
+            transition: transform 0.1s linear;
+        }
+        .indicator {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #ff4444;
+            transform: translateY(-50%);
+            z-index: 10;
+        }
+    </style>
 </head>
 <body>
-<div id="warn">⚠️iOS仅前台可更新；切App后台画面冻结，新文字不刷新</div>
-<button id="openPiPBtn">打开PiP</button>
-<button id="changeTextBtn">模拟推送新文字</button>
+    <div class="control-panel">
+        <input type="text" id="pip-install" placeholder="输入pip包名，如：python-docx">
+        <button onclick="installPackage()">pip 安装</button>
+        <button onclick="toggleFloat()">开启全局悬浮</button>
+        <button onclick="toggleScroll()">播放/暂停</button>
+        <span>速度:</span>
+        <input type="range" id="speed" min="0.5" max="5" step="0.5" value="2">
+    </div>
 
-<canvas id="drawCanvas" width="360" height="640" style="display:none;"></canvas>
-<video id="pipVideo" muted playsinline style="display:none;"></video>
+    <textarea class="editor" id="script-input" placeholder="在这里输入你的提词稿...">欢迎使用浏览器端Python提词器
+支持pip安装Python包
+全局悬浮显示在所有软件之上
+可自由调整滚动速度和字体大小</textarea>
 
-<script>
-const canvas = document.getElementById('drawCanvas');
-const ctx = canvas.getContext('2d');
-const video = document.getElementById('pipVideo');
-const openPiPBtn = document.getElementById('openPiPBtn');
-const changeTextBtn = document.getElementById('changeTextBtn');
+    <div class="prompter-container" id="prompter-box">
+        <div class="indicator"></div>
+        <div class="prompter-content" id="prompter-text"></div>
+    </div>
 
-let currentText = "初始提词文字\n第一行\n第二行";
-let pipActive = false;
-let mseInited = false;
-let mediaSource = null;
-let sourceBuffer = null;
+    <script>
+        let pyodide = null;
+        let isScrolling = false;
+        let scrollPosition = 0;
+        let scrollSpeed = 2;
+        let animationId = null;
+        let pipWindow = null;
 
-function renderCanvas(text){
-  ctx.fillStyle="#000";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle="#ffffff";
-  ctx.font="bold 28px sans‑serif";
-  ctx.textAlign="center";
-  const lines = text.split('\n');
-  lines.forEach((line,i)=>{
-    ctx.fillText(line, canvas.width/2, 80 + i*46);
-  });
-}
+        // 初始化Pyodide和Python环境
+        async function initPyodide() {
+            pyodide = await loadPyodide();
+            await pyodide.loadPackage("micropip");
+            console.log("Python环境初始化完成，pip可用");
+        }
 
-async function initMSE(){
-  if(mseInited) return;
-  mseInited = true;
-  mediaSource = new MediaSource();
-  video.src = URL.createObjectURL(mediaSource);
+        // pip安装Python包
+        async function installPackage() {
+            const packageName = document.getElementById("pip-install").value.trim();
+            if (!packageName) return;
+            const micropip = pyodide.pyimport("micropip");
+            try {
+                await micropip.install(packageName);
+                alert(`成功安装包: ${packageName}`);
+                // 安装后可在Python中导入使用
+                await pyodide.runPythonAsync(`import ${packageName.split('==')[0]}`);
+            } catch (e) {
+                alert(`安装失败: ${e.message}\n提示：仅支持纯Python包或Pyodide预编译包`);
+            }
+        }
 
-  await new Promise(resolve => {
-    mediaSource.addEventListener('sourceopen', resolve, {once:true});
-  });
-  // iOS Safari h264兼容性很差，这里极易抛异常
-  sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
-}
+        // 开启全局悬浮（Document Picture-in-Picture）
+        async function toggleFloat() {
+            if (!window.documentPictureInPicture) {
+                alert("您的浏览器不支持文档画中画，请使用Chrome 111+或Edge 111+");
+                return;
+            }
+            if (pipWindow) {
+                pipWindow.close();
+                pipWindow = null;
+                return;
+            }
 
-openPiPBtn.addEventListener('click', async ()=>{
-  try{
-    renderCanvas(currentText);
-    await initMSE();
+            // 复制提词器样式和内容到画中画窗口
+            pipWindow = await window.documentPictureInPicture.requestWindow({
+                width: 800,
+                height: 300,
+                preferInitialWindowPlacement: true
+            });
 
-    // 等待媒体可以播放再执行play
-    await new Promise(resolve=>{
-      if(video.readyState >=2){ resolve(); return; }
-      video.addEventListener('canplay', resolve, {once:true});
-    });
+            // 拷贝样式
+            const style = document.createElement('style');
+            style.textContent = `
+                body { margin: 0; background: #000; color: #fff; font-family: "微软雅黑", sans-serif; }
+                .prompter-container { width: 100%; height: 100vh; overflow: hidden; position: relative; }
+                .prompter-content { padding: 40px 60px; font-size: 32px; line-height: 1.8; transform: translateY(0); }
+                .indicator { position: absolute; top: 50%; left: 0; right: 0; height: 2px; background: #ff4444; transform: translateY(-50%); z-index: 10; }
+            `;
+            pipWindow.document.head.appendChild(style);
 
-    // 重点：捕获play中断AbortError
-    const playPromise = video.play();
-    await playPromise.catch(err=>{
-      // 这种中断错误属于预期行为，直接吞掉
-      if(err.name === "AbortError"){
-        console.log("play被加载中断，忽略");
-        return;
-      }
-      throw err;
-    });
+            // 拷贝提词器内容
+            const container = document.createElement('div');
+            container.className = 'prompter-container';
+            container.innerHTML = `
+                <div class="indicator"></div>
+                <div class="prompter-content" id="pip-prompter-text">${document.getElementById('prompter-text').innerHTML}</div>
+            `;
+            pipWindow.document.body.appendChild(container);
 
-    await video.requestPictureInPicture();
-    pipActive = true;
-  }catch(e){
-    alert("PiP初始化失败："+e.message);
-    console.error(e);
-  }
-});
+            // 同步滚动状态
+            syncScrollToPipWindow();
+            pipWindow.addEventListener('pagehide', () => { pipWindow = null; });
+        }
 
-changeTextBtn.addEventListener('click',()=>{
-  currentText = "更新后的提词\nElectron卡顿排查\n主线程阻塞优化";
-  renderCanvas(currentText);
-  // ⚠️iOS切后台后：render会执行，但无法送入视频帧，PiP画面不会变
-});
+        // 同步滚动到画中画窗口
+        function syncScrollToPipWindow() {
+            if (pipWindow) {
+                const pipText = pipWindow.document.getElementById('pip-prompter-text');
+                if (pipText) {
+                    pipText.style.transform = `translateY(${-scrollPosition}px)`;
+                }
+            }
+        }
 
-renderCanvas(currentText);
-</script>
+        // 播放/暂停滚动
+        function toggleScroll() {
+            isScrolling = !isScrolling;
+            if (isScrolling) {
+                scrollAnimation();
+            } else {
+                cancelAnimationFrame(animationId);
+            }
+        }
+
+        // 滚动动画
+        function scrollAnimation() {
+            scrollPosition += scrollSpeed;
+            const content = document.getElementById('prompter-text');
+            content.style.transform = `translateY(${-scrollPosition}px)`;
+            syncScrollToPipWindow();
+            animationId = requestAnimationFrame(scrollAnimation);
+        }
+
+        // 速度调节
+        document.getElementById('speed').addEventListener('input', (e) => {
+            scrollSpeed = parseFloat(e.target.value);
+        });
+
+        // 文本输入同步到提词器
+        document.getElementById('script-input').addEventListener('input', (e) => {
+            document.getElementById('prompter-text').innerText = e.target.value;
+            scrollPosition = 0;
+        });
+
+        // 初始化
+        window.onload = () => {
+            initPyodide();
+            document.getElementById('prompter-text').innerText = document.getElementById('script-input').value;
+        };
+    </script>
 </body>
 </html>
