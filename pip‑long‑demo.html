@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF‑8" />
 <meta name="viewport" content="width=device‑width, initial‑scale=1.0"/>
-<title>PiP提词器Demo</title>
+<title>PiP提词器Fix</title>
 <style>
 body{background:#111;color:#fff;padding:20px;}
 #canvasBox{display:none;}
@@ -11,8 +11,8 @@ button{padding:12px 24px;font‑size:16px;margin:8px 0;}
 </style>
 </head>
 <body>
-<h3>PiP画中画提词测试（必须Safari，点击按钮唤起）</h3>
-<button id="openPipBtn">打开画中画提词</button>
+<h3>PiP画中画提词（修复Safari报错）</h3>
+<button id="openPipBtn">👉点击打开画中画（仅点一次）</button>
 <button id="setTxtBtn">更新提词文本</button>
 <div id="canvasBox">
 <canvas id="tcCanvas" width="360" height="640"></canvas>
@@ -27,8 +27,8 @@ const openBtn = document.getElementById('openPipBtn');
 const setTxtBtn = document.getElementById('setTxtBtn');
 
 let teleText = "面试提词示例：\n先讲项目背景，再讲技术难点，最后讲收获。";
+let pipActive = false;
 
-// 绘制提词到canvas
 function drawText(text){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -41,18 +41,24 @@ function drawText(text){
   })
 }
 
-// 初始化视频流
+// 监听pip关闭事件
+video.addEventListener('leavepictureinpicture', ()=>{
+  pipActive = false;
+})
+
 const stream = canvas.captureStream(30);
 video.srcObject = stream;
-video.play();
 
-// 用户手势触发PiP
 openBtn.addEventListener('click',async ()=>{
+  if(pipActive) return;
   try{
     drawText(teleText);
+    await video.play();
     await video.requestPictureInPicture();
+    pipActive = true;
   }catch(e){
     alert("PiP唤起失败："+e.message+"，请使用iOS Safari");
+    console.error(e);
   }
 })
 
