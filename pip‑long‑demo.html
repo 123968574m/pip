@@ -2,8 +2,8 @@
 <html lang="zh‑CN">
 <head>
 <meta charset="UTF‑8" />
-<meta name="viewport" content="width=device‑width, initial‑scale=1.0"/>
-<title>iOS Safari PiP极限测试</title>
+<meta name="viewport" content="width=device‑width, initial‑scale=1.0, touch‑action: manipulation"/>
+<title>PiP提词器最终兼容版</title>
 <style>
 body{background:#111;color:#fff;padding:20px;}
 #canvasBox{display:none;}
@@ -11,7 +11,7 @@ button{padding:14px 24px;font‑size:16px;margin:8px 0;}
 </style>
 </head>
 <body>
-<h3>PiP测试（仅原生Safari HTTPS）</h3>
+<h3>PiP画中画提词器</h3>
 <button id="openBtn">打开画中画</button>
 <button id="updateBtn">更新文字</button>
 <div id="canvasBox">
@@ -43,24 +43,24 @@ video.addEventListener('leavepictureinpicture',()=>{
   pipOn = false;
 })
 
-// 使用touchend，全部逻辑同步，不写await，不写Promise await
-openBtn.addEventListener('touchend', function(e){
-  e.preventDefault();
+// ✅全局初始化流，不要放到click里面
+const stream = canvas.captureStream(25);
+video.srcObject = stream;
+video.play();
+
+// ✅只用click事件，不要touchend/touchstart
+openBtn.addEventListener('click', function(){
   if(pipOn) return;
   render(textContent);
-  // 全部媒体操作，全部放在touchend同步栈内
-  const stream = canvas.captureStream(25);
-  video.srcObject = stream;
-  video.play();
-  // 直接同步调用requestPictureInPicture，不await
+  // 仅requestPictureInPicture放在click同步栈
   video.requestPictureInPicture()
   .then(()=>{
     pipOn = true;
     console.log("PiP打开成功");
   })
   .catch(err=>{
-    alert("PiP失败："+err.message);
     console.error(err);
+    alert("PiP不可用，将在页面内展示提词："+err.message);
   })
 })
 
