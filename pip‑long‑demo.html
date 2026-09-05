@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>浏览器Pip提词器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全平台提词器</title>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -14,7 +15,7 @@
         #pip-install { flex: 1; min-width: 200px; padding: 6px 10px; border-radius: 4px; border: 1px solid #333; background: #222; color: #fff; }
         .editor { width: 100%; height: 200px; padding: 15px; background: #222; color: #fff; border: 1px solid #333; border-radius: 4px; resize: vertical; margin-bottom: 15px; font-size: 16px; line-height: 1.6; }
         
-        /* 提词器滚动区域样式 */
+        /* 提词器滚动区域 */
         .prompter-container {
             width: 100%;
             height: 300px;
@@ -22,6 +23,7 @@
             position: relative;
             background: #000;
             border-radius: 4px;
+            margin-bottom: 15px;
         }
         .prompter-content {
             padding: 40px 60px;
@@ -29,6 +31,7 @@
             line-height: 1.8;
             transform: translateY(0);
             transition: transform 0.1s linear;
+            white-space: pre-wrap;
         }
         .indicator {
             position: absolute;
@@ -40,6 +43,9 @@
             transform: translateY(-50%);
             z-index: 10;
         }
+
+        /* iOS 画中画专用 canvas 和 video，默认隐藏 */
+        #pip-canvas, #pip-video { display: none; }
     </style>
 </head>
 <body>
@@ -52,15 +58,19 @@
         <input type="range" id="speed" min="0.5" max="5" step="0.5" value="2">
     </div>
 
-    <textarea class="editor" id="script-input" placeholder="在这里输入你的提词稿...">欢迎使用浏览器端Python提词器
-支持pip安装Python包
-全局悬浮显示在所有软件之上
+    <textarea class="editor" id="script-input" placeholder="在这里输入你的提词稿...">欢迎使用全平台提词器
+支持浏览器端Python pip安装包
+iOS/安卓/桌面端通用悬浮显示
 可自由调整滚动速度和字体大小</textarea>
 
     <div class="prompter-container" id="prompter-box">
         <div class="indicator"></div>
         <div class="prompter-content" id="prompter-text"></div>
     </div>
+
+    <!-- iOS 视频画中画专用 -->
+    <canvas id="pip-canvas" width="800" height="300"></canvas>
+    <video id="pip-video" playsinline webkit-playsinline></video>
 
     <script>
         let pyodide = null;
@@ -69,15 +79,17 @@
         let scrollSpeed = 2;
         let animationId = null;
         let pipWindow = null;
+        let iosPiPActive = false;
+        let canvasStream = null;
 
-        // 初始化Pyodide和Python环境
+        // 初始化Pyodide
         async function initPyodide() {
             pyodide = await loadPyodide();
             await pyodide.loadPackage("micropip");
-            console.log("Python环境初始化完成，pip可用");
+            console.log("Python环境初始化完成");
         }
 
-        // pip安装Python包
+        // pip安装包
         async function installPackage() {
             const packageName = document.getElementById("pip-install").value.trim();
             if (!packageName) return;
@@ -85,83 +97,187 @@
             try {
                 await micropip.install(packageName);
                 alert(`成功安装包: ${packageName}`);
-                // 安装后可在Python中导入使用
-                await pyodide.runPythonAsync(`import ${packageName.split('==')[0]}`);
             } catch (e) {
-                alert(`安装失败: ${e.message}\n提示：仅支持纯Python包或Pyodide预编译包`);
+                alert(`安装失败: ${e.message}\n仅支持纯Python包`);
             }
         }
 
-        // 开启全局悬浮（Document Picture-in-Picture）
+        // 智能悬浮：自动判断设备用对应方案
         async function toggleFloat() {
-            if (!window.documentPictureInPicture) {
-                alert("您的浏览器不支持文档画中画，请使用Chrome 111+或Edge 111+");
-                return;
+            // 优先用桌面端文档画中画
+            if (window.documentPictureInPicture) {
+                if (pipWindow) {
+                    pipWindow.close();
+                    pipWindow = null;
+                    return;
+                }
+                startDocumentPiP();
+            } 
+            // iOS / 其他设备用视频画中画
+            else if (document.pictureInPictureEnabled) {
+                if (iosPiPActive) {
+                    await document.exitPictureInPicture();
+                    iosPiPActive = false;
+                    return;
+                }
+                startIosVideoPiP();
+            } 
+            else {
+                alert("当前浏览器不支持悬浮功能，请使用iOS Safari、桌面Chrome/Edge");
             }
-            if (pipWindow) {
-                pipWindow.close();
-                pipWindow = null;
-                return;
-            }
+        }
 
-            // 复制提词器样式和内容到画中画窗口
+        // ========== 桌面端：文档画中画 ==========
+        async function startDocumentPiP() {
             pipWindow = await window.documentPictureInPicture.requestWindow({
-                width: 800,
-                height: 300,
-                preferInitialWindowPlacement: true
+                width: 800, height: 300
             });
-
-            // 拷贝样式
             const style = document.createElement('style');
             style.textContent = `
                 body { margin: 0; background: #000; color: #fff; font-family: "微软雅黑", sans-serif; }
                 .prompter-container { width: 100%; height: 100vh; overflow: hidden; position: relative; }
-                .prompter-content { padding: 40px 60px; font-size: 32px; line-height: 1.8; transform: translateY(0); }
+                .prompter-content { padding: 40px 60px; font-size: 32px; line-height: 1.8; }
                 .indicator { position: absolute; top: 50%; left: 0; right: 0; height: 2px; background: #ff4444; transform: translateY(-50%); z-index: 10; }
             `;
             pipWindow.document.head.appendChild(style);
-
-            // 拷贝提词器内容
             const container = document.createElement('div');
             container.className = 'prompter-container';
             container.innerHTML = `
                 <div class="indicator"></div>
-                <div class="prompter-content" id="pip-prompter-text">${document.getElementById('prompter-text').innerHTML}</div>
+                <div class="prompter-content" id="pip-prompter-text">${document.getElementById('prompter-text').innerText}</div>
             `;
             pipWindow.document.body.appendChild(container);
-
-            // 同步滚动状态
-            syncScrollToPipWindow();
+            syncScroll();
             pipWindow.addEventListener('pagehide', () => { pipWindow = null; });
         }
 
-        // 同步滚动到画中画窗口
-        function syncScrollToPipWindow() {
-            if (pipWindow) {
-                const pipText = pipWindow.document.getElementById('pip-prompter-text');
-                if (pipText) {
-                    pipText.style.transform = `translateY(${-scrollPosition}px)`;
+        // ========== iOS：视频画中画 ==========
+        async function startIosVideoPiP() {
+            const canvas = document.getElementById('pip-canvas');
+            const video = document.getElementById('pip-video');
+            const ctx = canvas.getContext('2d');
+
+            // 启动画布渲染循环
+            function renderCanvas() {
+                // 黑色背景
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // 红色指示线
+                ctx.strokeStyle = '#ff4444';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(0, canvas.height / 2);
+                ctx.lineTo(canvas.width, canvas.height / 2);
+                ctx.stroke();
+
+                // 绘制文字
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '28px 微软雅黑, sans-serif';
+                ctx.textBaseline = 'top';
+                
+                const text = document.getElementById('prompter-text').innerText;
+                const lines = text.split('\n');
+                const lineHeight = 50;
+                const startY = 40 - scrollPosition;
+                const paddingX = 40;
+
+                for (let i = 0; i < lines.length; i++) {
+                    const y = startY + i * lineHeight;
+                    if (y > -lineHeight && y < canvas.height) {
+                        ctx.fillText(lines[i], paddingX, y);
+                    }
                 }
+
+                if (isScrolling) {
+                    requestAnimationFrame(renderCanvas);
+                }
+            }
+
+            // 捕获canvas为视频流
+            canvasStream = canvas.captureStream(30);
+            video.srcObject = canvasStream;
+            
+            try {
+                await video.play();
+                await video.requestPictureInPicture();
+                iosPiPActive = true;
+                renderCanvas();
+
+                // 监听退出
+                video.addEventListener('leavepictureinpicture', () => {
+                    iosPiPActive = false;
+                    video.srcObject = null;
+                    canvasStream = null;
+                });
+            } catch (e) {
+                alert(`iOS悬浮启动失败：${e.message}\n请确保使用Safari浏览器，且系统为iOS14+`);
             }
         }
 
-        // 播放/暂停滚动
+        // 同步滚动状态
+        function syncScroll() {
+            const content = document.getElementById('prompter-text');
+            content.style.transform = `translateY(${-scrollPosition}px)`;
+            
+            if (pipWindow) {
+                const pipText = pipWindow.document.getElementById('pip-prompter-text');
+                if (pipText) pipText.style.transform = `translateY(${-scrollPosition}px)`;
+            }
+        }
+
+        // 播放/暂停
         function toggleScroll() {
             isScrolling = !isScrolling;
             if (isScrolling) {
                 scrollAnimation();
+                // iOS画中画模式下重启渲染
+                if (iosPiPActive) {
+                    const canvas = document.getElementById('pip-canvas');
+                    const ctx = canvas.getContext('2d');
+                    renderIosCanvas(ctx, canvas);
+                }
             } else {
                 cancelAnimationFrame(animationId);
             }
         }
 
-        // 滚动动画
         function scrollAnimation() {
             scrollPosition += scrollSpeed;
-            const content = document.getElementById('prompter-text');
-            content.style.transform = `translateY(${-scrollPosition}px)`;
-            syncScrollToPipWindow();
+            syncScroll();
             animationId = requestAnimationFrame(scrollAnimation);
+        }
+
+        // iOS canvas渲染函数
+        function renderIosCanvas(ctx, canvas) {
+            if (!iosPiPActive || !isScrolling) return;
+            
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.strokeStyle = '#ff4444';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '28px 微软雅黑, sans-serif';
+            ctx.textBaseline = 'top';
+            
+            const text = document.getElementById('prompter-text').innerText;
+            const lines = text.split('\n');
+            const lineHeight = 50;
+            const startY = 40 - scrollPosition;
+
+            for (let i = 0; i < lines.length; i++) {
+                const y = startY + i * lineHeight;
+                if (y > -lineHeight && y < canvas.height) {
+                    ctx.fillText(lines[i], 40, y);
+                }
+            }
+            requestAnimationFrame(() => renderIosCanvas(ctx, canvas));
         }
 
         // 速度调节
@@ -169,7 +285,7 @@
             scrollSpeed = parseFloat(e.target.value);
         });
 
-        // 文本输入同步到提词器
+        // 文本同步
         document.getElementById('script-input').addEventListener('input', (e) => {
             document.getElementById('prompter-text').innerText = e.target.value;
             scrollPosition = 0;
