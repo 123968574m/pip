@@ -1,164 +1,66 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh‑CN">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>iPhone Video PiP 测试</title>
+<meta charset="UTF‑8" />
+<meta name="viewport" content="width=device‑width, initial‑scale=1.0"/>
+<title>PiP提词器Demo</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #111;
-    color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    padding: 20px;
-    min-height: 100vh;
-  }
-  h1 {
-    font-size: 18px;
-    margin-bottom: 12px;
-  }
-  .tip {
-    font-size: 14px;
-    color: #bbb;
-    margin-bottom: 16px;
-    line-height: 1.6;
-  }
-  video {
-    width: 100%;
-    max-width: 420px;
-    background: #000;
-    border-radius: 10px;
-    display: block;
-    margin-bottom: 16px;
-  }
-  .btn-group {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    max-width: 420px;
-  }
-  button {
-    padding: 14px;
-    font-size: 16px;
-    border: none;
-    border-radius: 10px;
-    background: #2f80ed;
-    color: #fff;
-    cursor: pointer;
-  }
-  button.secondary {
-    background: #333;
-  }
-  .status {
-    margin-top: 16px;
-    padding: 12px;
-    background: #1c1c1e;
-    border-radius: 10px;
-    font-size: 14px;
-    min-height: 44px;
-    white-space: pre-line;
-    line-height: 1.6;
-  }
-  .ok { color: #4ade80; }
-  .err { color: #f87171; }
+body{background:#111;color:#fff;padding:20px;}
+#canvasBox{display:none;}
+button{padding:12px 24px;font‑size:16px;margin:8px 0;}
 </style>
 </head>
 <body>
-
-  <h1>iPhone Video PiP 测试</h1>
-
-  <p class="tip">
-    此页面用真实视频标签测试系统画中画。<br />
-    如果能弹出小窗，说明 video 形式 PiP 可用；<br />
-    如果不能弹出，说明不是页面写法问题，而是 iPhone Safari 对当前视频源不支持 PiP。
-  </p>
-
-  <video id="video" controls playsinline muted preload="metadata">
-    <source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4" />
-  </video>
-
-  <div class="btn-group">
-    <button id="playBtn">播放视频</button>
-    <button id="pipBtn">尝试弹出画中画</button>
-    <button id="closePipBtn" class="secondary">关闭画中画</button>
-  </div>
-
-  <div id="status" class="status">等待操作...</div>
+<h3>PiP画中画提词测试（必须Safari，点击按钮唤起）</h3>
+<button id="openPipBtn">打开画中画提词</button>
+<button id="setTxtBtn">更新提词文本</button>
+<div id="canvasBox">
+<canvas id="tcCanvas" width="360" height="640"></canvas>
+<video id="tcVideo" muted playsinline></video>
+</div>
 
 <script>
-  const video = document.getElementById('video');
-  const playBtn = document.getElementById('playBtn');
-  const pipBtn = document.getElementById('pipBtn');
-  const closePipBtn = document.getElementById('closePipBtn');
-  const status = document.getElementById('status');
+const canvas = document.getElementById('tcCanvas');
+const ctx = canvas.getContext('2d');
+const video = document.getElementById('tcVideo');
+const openBtn = document.getElementById('openPipBtn');
+const setTxtBtn = document.getElementById('setTxtBtn');
 
-  function log(msg, type = '') {
-    status.className = 'status ' + type;
-    status.textContent = msg;
+let teleText = "面试提词示例：\n先讲项目背景，再讲技术难点，最后讲收获。";
+
+// 绘制提词到canvas
+function drawText(text){
+  ctx.fillStyle="#000";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#ffffff";
+  ctx.font="bold 26px sans‑serif";
+  ctx.textAlign="center";
+  const lines = text.split('\n');
+  lines.forEach((line,i)=>{
+    ctx.fillText(line, canvas.width/2, 80 + i*44);
+  })
+}
+
+// 初始化视频流
+const stream = canvas.captureStream(30);
+video.srcObject = stream;
+video.play();
+
+// 用户手势触发PiP
+openBtn.addEventListener('click',async ()=>{
+  try{
+    drawText(teleText);
+    await video.requestPictureInPicture();
+  }catch(e){
+    alert("PiP唤起失败："+e.message+"，请使用iOS Safari");
   }
+})
 
-  playBtn.addEventListener('click', async () => {
-    try {
-      await video.play();
-      log('✅ 视频已播放', 'ok');
-    } catch (e) {
-      log('❌ 播放失败：' + e.message, 'err');
-    }
-  });
-
-  pipBtn.addEventListener('click', async () => {
-    if (!document.pictureInPictureEnabled) {
-      log('❌ 当前浏览器不支持 pictureInPictureEnabled', 'err');
-      return;
-    }
-
-    if (video.readyState === 0) {
-      log('❌ 视频还没加载完成，请先点击“播放视频”', 'err');
-      return;
-    }
-
-    try {
-      if (document.pictureInPictureElement) {
-        log('ℹ️ 已经有一个画中画窗口在运行', 'ok');
-        return;
-      }
-
-      await video.requestPictureInPicture();
-      log('✅ 已调用 requestPictureInPicture()', 'ok');
-    } catch (e) {
-      log('❌ 唤起 PiP 失败：' + e.message + '\n\n这通常说明 iPhone Safari 不允许当前视频源进入画中画。', 'err');
-    }
-  });
-
-  closePipBtn.addEventListener('click', async () => {
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        log('✅ 已关闭画中画', 'ok');
-      } else {
-        log('ℹ️ 当前没有画中画窗口', 'ok');
-      }
-    } catch (e) {
-      log('❌ 关闭 PiP 失败：' + e.message, 'err');
-    }
-  });
-
-  video.addEventListener('enterpictureinpicture', () => {
-    log('✅ 视频已进入画中画模式', 'ok');
-  });
-
-  video.addEventListener('leavepictureinpicture', () => {
-    log('ℹ️ 视频已离开画中画模式', 'ok');
-  });
-
-  video.addEventListener('loadedmetadata', () => {
-    log('ℹ️ 视频元数据已加载，可尝试播放并唤起 PiP', 'ok');
-  });
-
-  video.addEventListener('error', () => {
-    log('❌ 视频加载出错', 'err');
-  });
+setTxtBtn.onclick = ()=>{
+  teleText = "更新后的提词：\n我负责Electron渲染进程卡顿排查，定位到大图片base64同步阻塞主线程。\n采用WebWorker或者FormData流上传解决鼠标漂移。";
+  drawText(teleText);
+}
+drawText(teleText);
 </script>
-
 </body>
 </html>
