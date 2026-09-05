@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF‑8" />
 <meta name="viewport" content="width=device‑width, initial‑scale=1.0"/>
-<title>PiP提词器最终修复版</title>
+<title>iOS Safari PiP极限测试</title>
 <style>
 body{background:#111;color:#fff;padding:20px;}
 #canvasBox{display:none;}
-button{padding:12px 24px;font‑size:16px;margin:8px 0;}
+button{padding:14px 24px;font‑size:16px;margin:8px 0;}
 </style>
 </head>
 <body>
-<h3>PiP画中画提词器</h3>
-<button id="openPipBtn">👉点击打开画中画（仅点一次）</button>
-<button id="setTxtBtn">模拟接收提词文本</button>
+<h3>PiP测试（仅原生Safari HTTPS）</h3>
+<button id="openBtn">打开画中画</button>
+<button id="updateBtn">更新文字</button>
 <div id="canvasBox">
-<canvas id="tcCanvas" width="360" height="640"></canvas>
+<canvas id="tcCanvas" width="320" height="560"></canvas>
 <video id="tcVideo" muted playsinline></video>
 </div>
 
@@ -23,56 +23,53 @@ button{padding:12px 24px;font‑size:16px;margin:8px 0;}
 const canvas = document.getElementById('tcCanvas');
 const ctx = canvas.getContext('2d');
 const video = document.getElementById('tcVideo');
-const openBtn = document.getElementById('openPipBtn');
-const setTxtBtn = document.getElementById('setTxtBtn');
+const openBtn = document.getElementById('openBtn');
+const updateBtn = document.getElementById('updateBtn');
 
-let teleText = "面试提词示例：\n先讲项目背景，再讲技术难点，最后讲收获。";
-let pipActive = false;
+let textContent = "面试示例文字\n第一行\n第二行";
+let pipOn = false;
 
-function drawText(text){
+function render(txt){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle="#ffffff";
-  ctx.font="bold 26px sans‑serif";
+  ctx.fillStyle="#fff";
+  ctx.font="bold 24px sans‑serif";
   ctx.textAlign="center";
-  const lines = text.split('\n');
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.fillStyle="#000";
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  lines.forEach((line,i)=>{
-    ctx.fillText(line, canvas.width/2, 80 + i*44);
+  const arr = txt.split('\n');
+  arr.forEach((s,i)=>ctx.fillText(s,canvas.width/2,70+i*42));
+}
+
+video.addEventListener('leavepictureinpicture',()=>{
+  pipOn = false;
+})
+
+// 使用touchend，全部逻辑同步，不写await，不写Promise await
+openBtn.addEventListener('touchend', function(e){
+  e.preventDefault();
+  if(pipOn) return;
+  render(textContent);
+  // 全部媒体操作，全部放在touchend同步栈内
+  const stream = canvas.captureStream(25);
+  video.srcObject = stream;
+  video.play();
+  // 直接同步调用requestPictureInPicture，不await
+  video.requestPictureInPicture()
+  .then(()=>{
+    pipOn = true;
+    console.log("PiP打开成功");
   })
-}
-
-// 监听用户手动关闭画中画
-video.addEventListener('leavepictureinpicture', ()=>{
-  pipActive = false;
+  .catch(err=>{
+    alert("PiP失败："+err.message);
+    console.error(err);
+  })
 })
 
-// 初始化画布流
-const stream = canvas.captureStream(30);
-video.srcObject = stream;
-
-// 仅click同步回调中调用PiP
-openBtn.addEventListener('click',async ()=>{
-  if(pipActive) return;
-  try{
-    drawText(teleText);
-    await video.play();
-    await video.requestPictureInPicture();
-    pipActive = true;
-  }catch(e){
-    alert("PiP唤起失败："+e.message+"，请使用iOS Safari浏览器打开");
-    console.error(e);
-  }
-})
-
-// 模拟websocket收到新提词，只重绘，不操作PiP
-setTxtBtn.onclick = ()=>{
-  teleText = "更新后的提词：\n我负责Electron渲染进程卡顿排查，定位到大图片base64同步阻塞主线程。\n采用WebWorker或者FormData流上传解决鼠标漂移。";
-  drawText(teleText);
+updateBtn.onclick = ()=>{
+  textContent = "更新内容：\nElectron卡顿排查\nbase64主线程阻塞";
+  render(textContent);
 }
-drawText(teleText);
+
+render(textContent);
 </script>
 </body>
 </html>
