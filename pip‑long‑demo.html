@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="zh‑CN">
+<html lang="zh-CN">
 <head>
-<meta charset="UTF‑8" />
-<meta name="viewport" content="width=device‑width, initial‑scale=1.0"/>
-<title>文字烧入视频帧PiP（仅前台有效）</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PiP测试 修复play中断报错</title>
 <style>
 body{background:#111;color:#fff;padding:20px;}
-button{padding:12px 20px;font‑size:16px;margin:4px;}
-#tip{color:#ff9800;margin‑bottom:10px;}
+button{padding:12px 20px;font-size:16px;margin:4px;}
+#warn{color:#ff9800;margin-bottom:10px;}
 </style>
 </head>
 <body>
-<div id="tip">⚠️iOS：仅Safari前台时PiP会更新文字；切App后台画面定格，新文字无法刷新</div>
+<div id="warn">⚠️iOS仅前台可更新；切App后台画面冻结，新文字不刷新</div>
 <button id="openPiPBtn">打开PiP</button>
 <button id="changeTextBtn">模拟推送新文字</button>
 
@@ -27,11 +27,10 @@ const changeTextBtn = document.getElementById('changeTextBtn');
 
 let currentText = "初始提词文字\n第一行\n第二行";
 let pipActive = false;
+let mseInited = false;
 let mediaSource = null;
-let queue = [];
 let sourceBuffer = null;
 
-// 渲染文字到canvas
 function renderCanvas(text){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -44,22 +43,41 @@ function renderCanvas(text){
   });
 }
 
-// 初始化MSE
 async function initMSE(){
+  if(mseInited) return;
+  mseInited = true;
   mediaSource = new MediaSource();
   video.src = URL.createObjectURL(mediaSource);
-  await new Promise(resolve=>{
-    mediaSource.addEventListener('sourceopen',resolve,{once:true});
+
+  await new Promise(resolve => {
+    mediaSource.addEventListener('sourceopen', resolve, {once:true});
   });
-  // 注意：iOS Safari对MP4编码兼容性很差，很多版本这里直接抛异常
+  // iOS Safari h264兼容性很差，这里极易抛异常
   sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
 }
 
-openPiPBtn.addEventListener('click',async ()=>{
+openPiPBtn.addEventListener('click', async ()=>{
   try{
     renderCanvas(currentText);
     await initMSE();
-    await video.play();
+
+    // 等待媒体可以播放再执行play
+    await new Promise(resolve=>{
+      if(video.readyState >=2){ resolve(); return; }
+      video.addEventListener('canplay', resolve, {once:true});
+    });
+
+    // 重点：捕获play中断AbortError
+    const playPromise = video.play();
+    await playPromise.catch(err=>{
+      // 这种中断错误属于预期行为，直接吞掉
+      if(err.name === "AbortError"){
+        console.log("play被加载中断，忽略");
+        return;
+      }
+      throw err;
+    });
+
     await video.requestPictureInPicture();
     pipActive = true;
   }catch(e){
@@ -71,7 +89,7 @@ openPiPBtn.addEventListener('click',async ()=>{
 changeTextBtn.addEventListener('click',()=>{
   currentText = "更新后的提词\nElectron卡顿排查\n主线程阻塞优化";
   renderCanvas(currentText);
-  // ⚠️重点：iOS一旦切后台，这里虽然会执行，但无法把新帧送入video，PiP画面不会变
+  // ⚠️iOS切后台后：render会执行，但无法送入视频帧，PiP画面不会变
 });
 
 renderCanvas(currentText);
